@@ -1,6 +1,6 @@
 ---
 title: "Homework 1 - Multivariate Analysis"
-author: "Öykü Süoglu, Mariusz Olszyna and Maximilian Knell"
+author: "Öykü Süoglu, Marcin Olszyna and Maximilian Knell"
 output:
   pdf_document: default
 ---

@@ -9,7 +9,7 @@ output:
 
 ## 1a. Data Import
 
-```{r}
+```{r echo=FALSE}
 # Import dataset
 data <- read.csv2("euroleague_25_26.csv")
 # Remove row number
@@ -22,7 +22,7 @@ head(data)
 
 ## 1b. Convert Minutes
 
-```{r}
+```{r echo=FALSE}
 # Split minutes
 aux <- strsplit(data$Min, ":")
 
@@ -36,7 +36,7 @@ head(data[, c("Min", "Min 2")])
 
 ## 1c. Set Player Names as Row Labels
 
-```{r}
+```{r echo=FALSE}
 # Assign player names as row labels
 rownames(data) <- make.unique(as.character(data$PLAYER))
 
@@ -50,7 +50,7 @@ head(data)
 
 # 1d. Filter Players
 
-```{r}
+```{r echo=FALSE}
 # Number of players before filtering
 nrow(data)
 
@@ -68,7 +68,7 @@ head(data)
 
 ## 2a
 
-```{r}
+```{r echo=FALSE}
 #install.packages("FactoMineR")
 
 library(FactoMineR)
@@ -96,7 +96,7 @@ summary(pca)
 
 ## 2b. Number of Principal Components
 
-```{r}
+```{r echo=FALSE}
 # Display eigenvalues and explained variance
 pca$eig
 
@@ -279,7 +279,7 @@ Gower MDS provides clearer grouping of players by position, with centers, guards
 # 4. Multiple Correspondence Analysis (MCA)
 
 # 4a. Convert Numerical Variables to Binary Categories
-```{r}
+```{r echo=FALSE}
 
 # Create MCA dataset
 mca_data <- data

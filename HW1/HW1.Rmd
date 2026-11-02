@@ -9,7 +9,7 @@ output:
 
 ## 1a. Data Import
 
-```{r echo=FALSE}
+```{r echo=FALSE, results='hide'}
 # Import dataset
 data <- read.csv2("euroleague_25_26.csv")
 # Remove row number
@@ -19,10 +19,13 @@ head(data)
 str(data)
 head(data)
 ```
-
+The dataset was successfully imported into the R environment. The initial variable 'No', which served merely as a row index, was discarded from the data frame because it holds no predictive or analytical value and would skew variance and distance calculations in the subsequent multivariate analysis. Following this preprocessing step, the active dataset consists of 71 observations (players) and 21 variables.
+```{r echo=FALSE}
+dim(data)
+```
 ## 1b. Convert Minutes
 
-```{r echo=FALSE}
+```{r echo=FALSE, results='hide'}
 # Split minutes
 aux <- strsplit(data$Min, ":")
 

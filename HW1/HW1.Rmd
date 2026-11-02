@@ -11,8 +11,8 @@ knitr::opts_chunk$set(
   message = FALSE,
   warning = FALSE,
   results = "hide",
-  fig.width = 6,
-  fig.height = 4,
+  fig.width = 9,
+  fig.height = 3,
   out.width = "70%",
   fig.align = "center"
 )
@@ -142,8 +142,15 @@ Based on the Kaiser criterion, four principal components should be retained, as 
 
 The variable plots show the correlation of each active variable with the principal components. Longer arrows indicate variables that are better represented in the plane shown. PIR appears as a dashed supplementary arrow.
 
-```{r, echo=FALSE, fig.width=7, fig.height=5}
+```{r, echo=FALSE, fig.show='hold', out.width='49%', fig.width=5, fig.height=4}
 # 2c. PCA Variable Plots
+
+par(mfrow = c(1, 2))
+
+plot(pca, choix = "var", axes = c(1, 2))
+plot(pca, choix = "var", axes = c(2, 3))
+
+par(mfrow = c(1, 1))
 
 # Variable coordinates and correlations
 pca$var$coord
@@ -167,7 +174,7 @@ plot(pca, choix = "var", axes = c(2, 3))
 
 **PC3 (7.76%) – Three-Point Shooting vs. Physical Play:** Three-point shooting percentage and games played correlate positively with PC3, while blocks against and turnovers correlate negatively. This dimension may reflect differences in playing style, although its interpretation is less clear.
 
-```{r, echo=FALSE, fig.width=7, fig.height=5}
+```{r, echo=FALSE, fig.width=8, fig.height=5, out.width="60%"}
 # 2e. PCA Individual Plots
 
 # PC1 vs. PC2
@@ -256,7 +263,9 @@ mds_gower$eig
 mds_gower$GOF
 ```
 # 3d. Interpretation of Gower MDS Dimensions
-```{r, echo=FALSE, fig.width=9, fig.height=6}
+```{r, echo=FALSE, fig.width=15, fig.height=8}
+
+par(mfrow = c(1, 2))
 
 # MDS coordinates
 x <- mds_gower$points[, 1]
@@ -311,6 +320,8 @@ We converted each numerical variable into a two-level factor: “Over average”
 # 4a. Convert Numerical Variables to Binary Categories
 ```{r echo=FALSE}
 
+par(mfrow = c(1, 2))
+
 # Create MCA dataset
 mca_data <- data
 
@@ -336,7 +347,9 @@ summary(mca_data)
 
 
 # 4b. Multiple Correspondence Analysis
-```{r, echo=FALSE, fig.width=8, fig.height=6}
+```{r, echo=FALSE, fig.width=4, fig.height=3}
+
+par(mfrow = c(1, 2))
 
 library(FactoMineR)
 

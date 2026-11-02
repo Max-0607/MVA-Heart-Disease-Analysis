@@ -174,14 +174,18 @@ plot(pca, choix = "var", axes = c(2, 3))
 
 **PC3 (7.76%) – Three-Point Shooting vs. Physical Play:** Three-point shooting percentage and games played correlate positively with PC3, while blocks against and turnovers correlate negatively. This dimension may reflect differences in playing style, although its interpretation is less clear.
 
-```{r, echo=FALSE, fig.width=8, fig.height=5, out.width="60%"}
+```{r, fig.show="hold", out.width="49%", fig.width=7, fig.height=6}
 # 2e. PCA Individual Plots
+plot(pca, choix = "ind", axes = c(1, 2),
+     select = "contrib 15",   # label only the 15 most contributing players
+     autoLab = "yes",         
+     invisible = "quali",     # hide TEAM/POSITION centroid labels
+     habillage = "POSITION",  # colour points by position
+     cex = 0.8)
 
-# PC1 vs. PC2
-plot(pca, choix = "ind", axes = c(1, 2))
-
-# PC2 vs. PC3
-plot(pca, choix = "ind", axes = c(2, 3))
+plot(pca, choix = "ind", axes = c(2, 3),
+     select = "contrib 15", autoLab = "yes",
+     invisible = "quali", habillage = "POSITION", cex = 0.8)
 ```
 
 The PC1–PC2 plot (58.58% explained variance) separates players mainly by overall statistical activity (PC1) and playing style (PC2). Players 33 and 14 show high PC1 scores, while player 44 has a low score. PC2 distinguishes playmaking-oriented players, such as player 24, from more inside-oriented players, such as players 33 and 17.
@@ -263,9 +267,8 @@ mds_gower$eig
 mds_gower$GOF
 ```
 # 3d. Interpretation of Gower MDS Dimensions
-```{r, echo=FALSE, fig.width=15, fig.height=8}
-
-par(mfrow = c(1, 2))
+```{r, fig.width=10, fig.height=9, out.width="100%"}
+par(mfrow = c(2, 2), cex = 1, cex.main = 1.2)
 
 # MDS coordinates
 x <- mds_gower$points[, 1]
@@ -276,18 +279,18 @@ plot(x, y, type = "n",
      xlab = "Coordinate 1", ylab = "Coordinate 2",
      main = "Gower MDS - Player Positions")
 
-text(x, y, labels = data$POSITION,
+text(x, y, labels = abbreviate(data$POSITION, 3),
      col = as.numeric(as.factor(data$POSITION)),
-     cex = 0.7)
+     cex = 0.9)
 
 # Plot by TEAM
 plot(x, y, type = "n",
      xlab = "Coordinate 1", ylab = "Coordinate 2",
      main = "Gower MDS - Teams")
 
-text(x, y, labels = data$TEAM,
+text(x, y, labels = abbreviate(data$TEAM,3),
      col = as.numeric(as.factor(data$TEAM)),
-     cex = 0.7)
+     cex = 0.9)
 
 # Plot by PTS
 plot(x, y, type = "n",
@@ -295,7 +298,7 @@ plot(x, y, type = "n",
      main = "Gower MDS - Points")
 
 text(x, y, labels = round(data$PTS, 1),
-     cex = 0.7)
+     cex = 0.9)
 
 # Plot by AST
 plot(x, y, type = "n",
@@ -303,7 +306,7 @@ plot(x, y, type = "n",
      main = "Gower MDS - Assists")
 
 text(x, y, labels = round(data$AST, 1),
-     cex = 0.7)
+     cex = 0.9)
 ```
 **Coordinate 1 – Scoring Activity:** Players with higher average points generally appear on the left, while lower-scoring players tend to appear on the right, suggesting that this dimension partly reflects scoring activity.
 
@@ -347,10 +350,8 @@ summary(mca_data)
 
 
 # 4b. Multiple Correspondence Analysis
-```{r, echo=FALSE, fig.width=4, fig.height=3}
-
-par(mfrow = c(1, 2))
-
+```{r, fig.show="hold", out.width="49%", fig.width=5, fig.height=4}
+library(ggplot2)
 library(FactoMineR)
 
 # Apply MCA
@@ -372,13 +373,16 @@ barplot(mca$eig[, 2],
 # Plot categories
 plot(mca, choix = "var", axes = c(1, 2))
 
-# MCA Category Map
-plot(mca, invisible = "ind",
-     title = "MCA - Categories")
+# Individuals only, coloured by position
+plot(mca, choix = "ind", invisible = c("var", "quali.sup"),
+     habillage = "POSITION", label = "none",
+     title = "MCA – Individuals") +
+  theme(plot.title = element_text(size = 11))
 
-# Plot individuals
-plot(mca, choix = "ind", axes = c(1, 2),
-     label = "none")
+# Categories: only the most important ones, labels repelled
+plot(mca, invisible = "ind", selectMod = "contrib 15",
+     autoLab = "yes", title = "MCA – Categories") +
+  theme(plot.title = element_text(size = 11))
 ```
 
 The first two MCA dimensions explain **42.08% of the total inertia** (25.46% and 16.62%).

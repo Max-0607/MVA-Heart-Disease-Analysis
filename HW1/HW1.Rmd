@@ -5,9 +5,23 @@ output:
   pdf_document: default
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  results = "hide",
+  fig.width = 6,
+  fig.height = 4,
+  out.width = "70%",
+  fig.align = "center"
+)
+```
+
 # 1. Exploratory Data Analysis
 
 ## 1a. Data Import
+
 
 ```{r echo=FALSE, results='hide'}
 # Import dataset
@@ -15,13 +29,15 @@ data <- read.csv2("euroleague_25_26.csv")
 # Remove row number
 data$No <- NULL
 # Inspect data
-head(data)
-str(data)
-head(data)
+#head(data)
+#str(data)
+#head(data)
 ```
-The initial variable 'No', which served merely as a row index, was discarded from the data frame because it holds no predictive or analytical value. Following the cleanup, the dataset consists of `r nrow(data)` rows and `r ncol(data)` columns.
+We imported the dataset into the R environment. We discarded the initial variable 'No', which served merely as a row index, from the data frame because it holds no predictive or analytical value and would skew variance and distance calculations in the subsequent multivariate analysis. Following the cleanup, the dataset consists of `r nrow(data)` rows and `r ncol(data)` columns.
 
 ## 1b. Convert Minutes
+
+We split the variable "Min" using strsplit(data$Min, ":") to extract minutes and to convert it to a numeric variable. 
 
 ```{r echo=FALSE, results='hide'}
 # Split minutes
@@ -31,11 +47,12 @@ aux <- strsplit(data$Min, ":")
 data$`Min 2` <- as.numeric(sapply(aux, `[`, 1))
 
 # Inspect result
-head(data[, c("Min", "Min 2")])
+#head(data[, c("Min", "Min 2")])
 
 ```
 
 ## 1c. Set Player Names as Row Labels
+We set the player names as row labels, so that we can identify individuals directly in the PCA and MDS plots.We used make.unique() as a safeguard against duplicate names. We then removed “PLAYER” and “Min”, because they are now redundant with the row labels and “Min 2”.
 
 ```{r echo=FALSE}
 # Assign player names as row labels
@@ -46,10 +63,11 @@ data$PLAYER <- NULL
 data$Min <- NULL
 
 # Inspect result
-head(data)
+#head(data)
 ```
 
 # 1d. Filter Players
+We only keep players that at least played for 5 minutes or more than in 5 games. Their averages come from very little playing time, so they are unstable and could distort our further analysis. After filtering, 60 of the original 71 players remained.
 
 ```{r echo=FALSE}
 # Number of players before filtering
@@ -59,15 +77,16 @@ nrow(data)
 data <- data[data$`Min 2` >= 5 & data$GP >= 5, ]
 
 # Number of players after filtering
-nrow(data)
+#nrow(data)
 
 # Inspect result
-head(data)
+#head(data)
 ```
 
 # 2. Principal Component Analysis (PCA)
 
 ## 2a
+We ran PCA on all numerical variables, standardised (scale.unit = TRUE). Standardising was necessary because the variables are on different scales: percentages, counts, and minutes. We included TEAM and POSITION as supplementary qualitative variables and PIR as a supplementary quantitative variable. They do not influence the construction of the components but are projected onto them afterwards to help interpretation. We excluded PIR from the active variables because it is itself a composite of the other statistics.
 
 ```{r echo=FALSE}
 #install.packages("FactoMineR")
@@ -117,9 +136,11 @@ barplot(
 abline(h = 1, col = "red", lty = 2)
 ```
 
-Based on the Kaiser criterion, four principal components should be retained, as their eigenvalues exceed 1. The scree plot shows a particularly steep decline after PC2, indicating that the first two components explain most of the variance.
+Based on the Kaiser criterion, four principal components should be retained, as their eigenvalues exceed 1. The scree plot shows a particularly steep decline after PC2, indicating that the first two components explain most of the variance (cumulative 58,58%). However, we retain the first 3 PCs (PC3 explaining 7,7% of variance), explaining a cumulative variance of 66,34%, since PC3 brings valuable information to the analysis by capturing the relationship between three-point shooting vs. physical play that we explain further in the following questions.
 
 ## 2c
+
+The variable plots show the correlation of each active variable with the principal components. Longer arrows indicate variables that are better represented in the plane shown. PIR appears as a dashed supplementary arrow.
 
 ```{r, echo=FALSE, fig.width=7, fig.height=5}
 # 2c. PCA Variable Plots
@@ -164,6 +185,9 @@ The PC2–PC3 plot (27.04% explained variance) highlights additional differences
 
 ## 3a. Metric MDS - Euclidean Distance
 
+
+We applied classical (metric) MDS to the Euclidean distance matrix of the standardised numerical variables (PIR excluded, as in PCA). Classical MDS on Euclidean distances of standardised data gives the same configuration as the PCA individual map, so the Euclidean MDS plot is essentially the PCA PC1–PC2 individual plot, labelled with player names.
+
 ```{r, echo=FALSE, fig.width=9, fig.height=7}
 
 # Select active numerical variables (exclude PIR)
@@ -195,6 +219,9 @@ text(x, y, labels = rownames(data), cex = 0.5)
 The Euclidean MDS plot shows a central concentration of players with relatively similar statistical profiles, without clearly separated clusters. Some players, such as Walter Tavares, Nikola Milutinov, and Facundo Campazzo, occupy more isolated positions, indicating distinct playing characteristics. Overall, the plot reveals both similarities among many players and substantial differences for certain individuals.
 
 ## 3c. Metric MDS - Gower Distance
+
+
+We used Gower distance because it can combine numerical variables with the categorical variable POSITION. Each variable contributes a dissimilarity between 0 and 1: range-scaled absolute differences for numerical variables, and simple mismatch for categorical ones. We then applied Metric MDS to the resulting distance matrix. The first two coordinates explain 57,63% of the total variation.
 
 ```{r, echo=FALSE, fig.width=9, fig.height=7}
 
@@ -278,6 +305,8 @@ text(x, y, labels = round(data$AST, 1),
 ## 3e
 Gower MDS provides clearer grouping of players by position, with centers, guards, and forwards showing a more distinct separation. This is because Gower distance incorporates the categorical variable POSITION alongside numerical statistics. Euclidean MDS mainly reflects differences in numerical performance and shows less distinct groups.
 # 4. Multiple Correspondence Analysis (MCA)
+
+We converted each numerical variable into a two-level factor: “Over average” if the player’s value exceeds the variable mean, and “Below average” otherwise. This way we are able to analyse the continuous statistics together with TEAM and POSITION in MCA. The trade-off was a loss of information, since we discard the magnitude of differences within each category.
 
 # 4a. Convert Numerical Variables to Binary Categories
 ```{r echo=FALSE}

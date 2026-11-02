@@ -20,7 +20,6 @@ knitr::opts_chunk$set(
 
 # 1. Exploratory Data Analysis
 
-## 1a. Data Import
 
 
 ```{r echo=FALSE, results='hide'}
@@ -33,11 +32,8 @@ data$No <- NULL
 #str(data)
 #head(data)
 ```
-We imported the dataset into the R environment. We discarded the initial variable 'No', which served merely as a row index, from the data frame because it holds no predictive or analytical value and would skew variance and distance calculations in the subsequent multivariate analysis. Following the cleanup, the dataset consists of `r nrow(data)` rows and `r ncol(data)` columns.
+The initial variable 'No', which served merely as a row index, was discarded from the data frame because it held no predictive or analytical value. Following this cleanup, the dataset consisted of r nrow(data) rows and r ncol(data) columns. Next, we split the variable 'Min' using strsplit(data$Min, ":") to extract the minutes and converted them into a numeric variable. We set the player names as row labels so we could identify individuals directly in the PCA and MDS plots, using make.unique() as a safeguard against duplicate names. We then removed the 'PLAYER' and 'Min' columns because they were rendered redundant by the new row labels and the numeric minutes variable. Finally, we retained only the players who played for at least 5 minutes and participated in 5 or more games. The averages of players with very little playing time are highly unstable and could distort the subsequent analysis. After this filtering step, 60 of the original 71 players remained in the dataset.
 
-## 1b. Convert Minutes
-
-We split the variable "Min" using strsplit(data$Min, ":") to extract minutes and to convert it to a numeric variable. 
 
 ```{r echo=FALSE, results='hide'}
 # Split minutes
@@ -51,9 +47,6 @@ data$`Min 2` <- as.numeric(sapply(aux, `[`, 1))
 
 ```
 
-## 1c. Set Player Names as Row Labels
-We set the player names as row labels, so that we can identify individuals directly in the PCA and MDS plots.We used make.unique() as a safeguard against duplicate names. We then removed “PLAYER” and “Min”, because they are now redundant with the row labels and “Min 2”.
-
 ```{r echo=FALSE}
 # Assign player names as row labels
 rownames(data) <- make.unique(as.character(data$PLAYER))
@@ -65,9 +58,6 @@ data$Min <- NULL
 # Inspect result
 #head(data)
 ```
-
-# 1d. Filter Players
-We only keep players that at least played for 5 minutes or more than in 5 games. Their averages come from very little playing time, so they are unstable and could distort our further analysis. After filtering, 60 of the original 71 players remained.
 
 ```{r echo=FALSE}
 # Number of players before filtering

@@ -32,7 +32,13 @@ data$No <- NULL
 #str(data)
 #head(data)
 ```
-The initial variable 'No', which served merely as a row index, was discarded from the data frame because it held no predictive or analytical value. Following this cleanup, the dataset consisted of r nrow(data) rows and r ncol(data) columns. Next, we split the variable 'Min' using strsplit(data$Min, ":") to extract the minutes and converted them into a numeric variable. We set the player names as row labels so we could identify individuals directly in the PCA and MDS plots, using make.unique() as a safeguard against duplicate names. We then removed the 'PLAYER' and 'Min' columns because they were rendered redundant by the new row labels and the numeric minutes variable. Finally, we retained only the players who played for at least 5 minutes and participated in 5 or more games. The averages of players with very little playing time are highly unstable and could distort the subsequent analysis. After this filtering step, 60 of the original 71 players remained in the dataset.
+The initial variable 'No', which served merely as a row index, was discarded from the data frame because it held no predictive or analytical value (1a).
+
+Next, we split the variable 'Min' using strsplit(data$Min, ":") to extract the minutes and converted them into a numeric variable (1b).
+
+We set the player names as row labels so we could identify individuals directly in the PCA and MDS plots, using make.unique() as a safeguard against duplicate names. We then removed the 'PLAYER' and 'Min' columns because they were rendered redundant by the new row labels and the numeric minutes variable (1c).
+
+Finally, we retained only the players who played for at least 5 minutes and participated in 5 or more games. The averages of players with very little playing time are highly unstable and could distort the subsequent analysis (1d). After this filtering step, 60 of the original 71 players remained in the dataset.
 
 
 ```{r echo=FALSE, results='hide'}

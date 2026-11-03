@@ -81,7 +81,7 @@ data <- data[data$`Min 2` >= 5 & data$GP >= 5, ]
 
 # 2. Principal Component Analysis (PCA)
 
-## 2a
+## 2a. PCA Application
 We ran PCA on all numerical variables, standardised (scale.unit = TRUE). Standardising was necessary because the variables are on different scales: percentages, counts, and minutes. We included TEAM and POSITION as supplementary qualitative variables and PIR as a supplementary quantitative variable. They do not influence the construction of the components but are projected onto them afterwards to help interpretation. We excluded PIR from the active variables because it is itself a composite of the other statistics.
 
 ```{r echo=FALSE}
@@ -110,7 +110,7 @@ pca <- PCA(
 summary(pca)
 ```
 
-## 2b. Number of Principal Components
+## 2b. Component Selection
 
 ```{r echo=FALSE}
 # Display eigenvalues and explained variance
@@ -134,27 +134,11 @@ abline(h = 1, col = "red", lty = 2)
 
 Based on the Kaiser criterion, four principal components should be retained, as their eigenvalues exceed 1. The scree plot shows a particularly steep decline after PC2, indicating that the first two components explain most of the variance (cumulative 58,58%). However, we retain the first 3 PCs (PC3 explaining 7,7% of variance), explaining a cumulative variance of 66,34%, since PC3 brings valuable information to the analysis by capturing the relationship between three-point shooting vs. physical play that we explain further in the following questions.
 
-## 2c
+## 2c. Variable Plots
 
 The variable plots show the correlation of each active variable with the principal components. Longer arrows indicate variables that are better represented in the plane shown. PIR appears as a dashed supplementary arrow.
 
-```{r, echo=FALSE, fig.show='hold', out.width='49%', fig.width=5, fig.height=4}
-# 2c. PCA Variable Plots
-
-par(mfrow = c(1, 2))
-
-plot(pca, choix = "var", axes = c(1, 2))
-plot(pca, choix = "var", axes = c(2, 3))
-
-par(mfrow = c(1, 1))
-
-# Variable coordinates and correlations
-pca$var$coord
-pca$var$cor
-
-# Contributions of variables
-pca$var$contrib
-
+```{r, fig.show='hold', out.width='49%', fig.width=5, fig.height=5}
 # PC1 vs. PC2
 plot(pca, choix = "var", axes = c(1, 2))
 
@@ -162,7 +146,7 @@ plot(pca, choix = "var", axes = c(1, 2))
 plot(pca, choix = "var", axes = c(2, 3))
 ```
 
-## 2d
+## 2d. Dimension Interpretation
 
 **PC1 (39.30%) – Overall Player Activity:** Most statistical variables are positively correlated with PC1, particularly points, minutes played, and rebounds. This dimension represents overall player activity and statistical contribution.
 
@@ -170,8 +154,10 @@ plot(pca, choix = "var", axes = c(2, 3))
 
 **PC3 (7.76%) – Three-Point Shooting vs. Physical Play:** Three-point shooting percentage and games played correlate positively with PC3, while blocks against and turnovers correlate negatively. This dimension may reflect differences in playing style, although its interpretation is less clear.
 
+## 2e. Individual Plots & Interpretation
+
 ```{r, fig.show="hold", out.width="49%", fig.width=7, fig.height=6}
-# 2e. PCA Individual Plots
+
 plot(pca, choix = "ind", axes = c(1, 2),
      select = "contrib 15",   # label only the 15 most contributing players
      autoLab = "yes",         
@@ -184,13 +170,13 @@ plot(pca, choix = "ind", axes = c(2, 3),
      invisible = "quali", habillage = "POSITION", cex = 0.8)
 ```
 
-The PC1–PC2 plot (58.58% explained variance) separates players mainly by overall statistical activity (PC1) and playing style (PC2). Players 33 and 14 show high PC1 scores, while player 44 has a low score. PC2 distinguishes playmaking-oriented players, such as player 24, from more inside-oriented players, such as players 33 and 17.
+The **PC1–PC2 plot (58.59% explained variance)** separates players mainly by overall statistical activity (PC1) and playing style (PC2). Players such as Sasha Vezenkov and Talen Horton Tucker have high PC1 scores, while Melih Mahmutoglu and Xabi Lopez-Arostegui have lower scores. PC2 distinguishes playmaking-oriented players, such as Facundo Campazzo and Tyler Dorsey, from inside-oriented players, such as Walter Tavares and Nikola Milutinov.
 
-The PC2–PC3 plot (27.04% explained variance) highlights additional differences in playing style, particularly three-point shooting. Players 25 and 23 have relatively high PC3 scores. Player positions partly reflect their roles, with guards tending towards higher PC2 values and centers towards lower values. However, the teams overlap considerably, indicating no clear separation by team.
+The **PC2–PC3 plot (27.04% explained variance)** highlights additional differences in playing style, particularly three-point shooting. Players such as Chuma Okeke and Matthew Costello have relatively high PC3 scores, while Walter Tavares and Alex Len have lower scores. Playing positions show some separation, particularly between guards and centers, although substantial overlap remains.
 
 # 3. Multidimensional Scaling (MDS)
 
-## 3a. Metric MDS - Euclidean Distance
+## 3a. Euclidean MDS
 
 
 We applied classical (metric) MDS to the Euclidean distance matrix of the standardised numerical variables (PIR excluded, as in PCA). Classical MDS on Euclidean distances of standardised data gives the same configuration as the PCA individual map, so the Euclidean MDS plot is essentially the PCA PC1–PC2 individual plot, labelled with player names.
@@ -222,10 +208,10 @@ plot(x, y,
 text(x, y, labels = rownames(data), cex = 0.5)
 ```
 
-## 3b
+## 3b. Euclidean MDS Interpretation
 The Euclidean MDS plot shows a central concentration of players with relatively similar statistical profiles, without clearly separated clusters. Some players, such as Walter Tavares, Nikola Milutinov, and Facundo Campazzo, occupy more isolated positions, indicating distinct playing characteristics. Overall, the plot reveals both similarities among many players and substantial differences for certain individuals.
 
-## 3c. Metric MDS - Gower Distance
+## 3c. Gower MDS
 
 
 We used Gower distance because it can combine numerical variables with the categorical variable POSITION. Each variable contributes a dissimilarity between 0 and 1: range-scaled absolute differences for numerical variables, and simple mismatch for categorical ones. We then applied Metric MDS to the resulting distance matrix. The first two coordinates explain 57,63% of the total variation.
@@ -262,7 +248,9 @@ text(x, y, labels = rownames(data), cex = 0.5)
 mds_gower$eig
 mds_gower$GOF
 ```
-# 3d. Interpretation of Gower MDS Dimensions
+
+## 3d. Dimension Interpretation
+
 ```{r, fig.width=10, fig.height=9, out.width="100%"}
 par(mfrow = c(2, 2), cex = 1, cex.main = 1.2)
 
@@ -310,13 +298,16 @@ text(x, y, labels = round(data$AST, 1),
 
 **Team Membership:** Players from all four teams overlap considerably, suggesting that team membership does not strongly explain the MDS dimensions.
 
-## 3e
+## 3e. MDS Comparison
 Gower MDS provides clearer grouping of players by position, with centers, guards, and forwards showing a more distinct separation. This is because Gower distance incorporates the categorical variable POSITION alongside numerical statistics. Euclidean MDS mainly reflects differences in numerical performance and shows less distinct groups.
+
 # 4. Multiple Correspondence Analysis (MCA)
+
+## 4a. Binary Categorization
 
 We converted each numerical variable into a two-level factor: “Over average” if the player’s value exceeds the variable mean, and “Below average” otherwise. This way we are able to analyse the continuous statistics together with TEAM and POSITION in MCA. The trade-off was a loss of information, since we discard the magnitude of differences within each category.
 
-# 4a. Convert Numerical Variables to Binary Categories
+
 ```{r echo=FALSE}
 
 par(mfrow = c(1, 2))
@@ -345,7 +336,8 @@ summary(mca_data)
 ```
 
 
-# 4b. Multiple Correspondence Analysis
+## 4b. MCA Application & Interpretation
+
 ```{r, fig.show="hold", out.width="49%", fig.width=5, fig.height=4}
 library(ggplot2)
 library(FactoMineR)
@@ -389,5 +381,5 @@ The first two MCA dimensions explain **42.08% of the total inertia** (25.46% and
 
 The individual factor map shows differences in player profiles without clearly separated clusters. Team categories are located near the origin, suggesting little influence on the first two dimensions. However, Dimension 3 (6.88%) is strongly associated with team membership (R² = 0.719).
 
-## 4c
+## 4c. PCA, MDS & MCA Comparison
 All three methods reveal similar patterns. PCA and MCA identify overall statistical involvement as the first dimension and differences between playmaking and inside-oriented players as the second. Euclidean MDS highlights differences in numerical player statistics, while Gower MDS provides clearer separation by playing position. Unlike PCA, MCA uses categorized performance variables, resulting in some information loss but making above- and below-average performance profiles easier to interpret.

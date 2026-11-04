@@ -276,7 +276,7 @@ text(x, y, labels = abbreviate(data$TEAM,3),
      col = as.numeric(as.factor(data$TEAM)),
      cex = 0.9)
 
-# Plot by PTS
+# Plot by POINTS
 plot(x, y, type = "n",
      xlab = "Coordinate 1", ylab = "Coordinate 2",
      main = "Gower MDS - Points")
@@ -284,7 +284,7 @@ plot(x, y, type = "n",
 text(x, y, labels = round(data$PTS, 1),
      cex = 0.9)
 
-# Plot by AST
+# Plot by ASSISTS
 plot(x, y, type = "n",
      xlab = "Coordinate 1", ylab = "Coordinate 2",
      main = "Gower MDS - Assists")

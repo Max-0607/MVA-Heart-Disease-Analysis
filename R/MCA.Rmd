@@ -1,0 +1,190 @@
+---
+title: "Multiple Correspondence Analysis"
+subtitle: "Heart Disease Dataset"
+output:
+  pdf_document:
+    toc: false
+    number_sections: true
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(FactoMineR)
+library(ggplot2)
+```
+
+
+# Data Preparation
+
+The preprocessed Heart Disease dataset is used for MCA. Numerical variables are converted into binary categories based on their mean values.
+
+```{r data-preparation}
+# Load data and remove missing observations
+heart_mca <- read.csv(
+  "../data/heart_disease_preprocessed.csv",
+  na.strings = c("", "NA", "?")
+)
+
+heart_mca <- na.omit(heart_mca)
+
+# Convert numerical variables into categories
+numeric_vars <- c(
+  "age", "rest_bp", "cholesterol",
+  "max_hr", "st_depression"
+)
+
+for (var in numeric_vars) {
+  avg <- mean(heart_mca[[var]])
+
+  heart_mca[[var]] <- ifelse(
+    heart_mca[[var]] > avg,
+    "Above average",
+    "Below average"
+  )
+}
+
+# Convert all variables to factors
+heart_mca[] <- lapply(heart_mca, as.factor)
+
+# Dataset dimensions
+dim(heart_mca)
+```
+After removing observations with missing values, 297 patients and 14 variables remain. Five numerical variables were converted into binary categories based on their respective means. All variables are now categorical and suitable for MCA.
+
+
+# Indicator and Burt Matrix
+
+The indicator matrix represents each category as a binary variable. The Burt matrix contains the frequencies of all category combinations.
+
+```{r matrices}
+# Select active variables
+active_data <- heart_mca[, names(heart_mca) != "heart_disease"]
+
+# Indicator matrix
+indicator <- tab.disjonctif(active_data)
+
+# Burt matrix
+burt <- t(indicator) %*% indicator
+
+# Matrix dimensions
+dim(indicator)
+dim(burt)
+```
+The indicator matrix contains 297 observations and 33 categories across 13 active variables. The corresponding Burt matrix has dimensions 33 × 33. Heart disease diagnosis is excluded from the active variables and will be used as a supplementary variable.
+
+
+# MCA Application
+
+We apply MCA to the 13 categorical variables, treating heart disease diagnosis as a supplementary variable.
+
+```{r mca}
+# Apply MCA
+res.mca <- MCA(
+  heart_mca,
+  quali.sup = which(names(heart_mca) == "heart_disease"),
+  ncp = 5,
+  graph = FALSE
+)
+
+# Eigenvalues of the first five dimensions
+round(res.mca$eig[1:5, ], 3)
+```
+The first three dimensions explain 30.84% of the total inertia. Based on the average eigenvalue criterion (1/13 = 0.0769), the first eight dimensions are above average. For a more concise interpretation, we focus on the first three dimensions, which capture distinct patterns in the data.
+
+
+
+# Interpretation of Dimensions
+
+We use `dimdesc()` to identify the variables most strongly associated with the first three dimensions.
+
+```{r dimension-interpretation}
+# Description of dimensions
+desc <- dimdesc(res.mca)
+
+
+# Top 5 variables associated with each dimension
+for (i in 1:3) {
+  cat("\nDimension", i, "\n")
+
+  print(
+    round(
+      head(desc[[i]]$quali[, "R2", drop = FALSE], 5),
+      3
+    )
+  )
+}
+```
+**Dimension 1 – Clinical Heart Disease Profile:** Mainly associated with maximum heart rate, chest pain type, ST slope, and thallium test results. Heart disease diagnosis, included as a supplementary variable, also shows a strong association (R² = 0.524).
+
+**Dimension 2 – Age and Blood Pressure:** Primarily characterized by resting blood pressure, age, and sex.
+
+**Dimension 3 – Cholesterol and Clinical Characteristics:** Mainly associated with cholesterol levels, chest pain type, and sex.
+
+
+# MCA Visualizations
+
+## Categories: Dimension 1 vs. Dimension 2
+
+```{r mca-categories-12, fig.width=10, fig.height=7}
+plot.MCA(
+  res.mca,
+  invisible = c("ind", "quali.sup"),
+  axes = c(1, 2),
+  title = "MCA - Active Categories"
+)
+```
+Dimension 1 mainly separates patients based on clinical characteristics, particularly maximum heart rate, exercise-induced angina, and ST depression. Dimension 2 primarily reflects differences in age, resting blood pressure, and sex.
+
+
+## Categories: Dimension 2 vs. Dimension 3
+
+```{r mca-categories-23, fig.width=10, fig.height=7}
+plot.MCA(
+  res.mca,
+  invisible = c("ind", "quali.sup"),
+  axes = c(2, 3),
+  title = "MCA - Active Categories (Dim 2 vs. Dim 3)"
+)
+```
+Dimension 3 mainly reflects differences in cholesterol levels, chest pain type, and sex. Typical chest pain and below-average cholesterol are located on the positive side, while above-average cholesterol and female patients tend to appear on the negative side.
+
+
+## Individuals by Heart Disease
+
+```{r mca-individuals, fig.width=9, fig.height=6}
+plot.MCA(
+  res.mca,
+  choix = "ind",
+  habillage = "heart_disease",
+  label = "none",
+  axes = c(1, 2),
+  title = "MCA - Individuals by Heart Disease"
+)
+```
+Patients without heart disease are predominantly located on the negative side of Dimension 1, while patients with heart disease tend to have higher scores. However, the different severity levels overlap considerably, and Dimension 2 does not show a clear separation between diagnosis groups.
+
+
+# Indicator vs. Burt Matrix
+
+```{r mca-burt}
+# MCA using Burt matrix
+res.mca.burt <- MCA(
+  heart_mca,
+  quali.sup = which(names(heart_mca) == "heart_disease"),
+  ncp = 5,
+  method = "Burt",
+  graph = FALSE
+)
+
+# Compare eigenvalues
+round(
+  cbind(
+    Indicator = res.mca$eig[1:5, 1],
+    Burt = res.mca.burt$eig[1:5, 1]
+  ),
+  4
+)
+```
+The Burt matrix produces squared eigenvalues compared to the indicator matrix. Both methods describe the same underlying dimensions, with differences in scaling rather than interpretation.

@@ -1,0 +1,198 @@
+---
+title: "Principal Component Analysis"
+subtitle: "Heart Disease Dataset"
+output:
+  pdf_document:
+    toc: false
+    number_sections: true
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  results = "hide",
+  fig.align = "center",
+  out.width = "80%"
+)
+
+library(FactoMineR)
+library(psych)
+```
+
+
+# Data Preparation
+
+The preprocessed Heart Disease dataset is used. Six patients with missing values in the number of vessels or the thallium test were removed (2% of the sample), leaving the same 297 patients as in the MCA. Their diagnoses are mixed (four without heart disease, two with heart disease), so no bias is expected. None of the missing values concern the variables used to build the components.
+
+The five continuous variables (age, resting blood pressure, cholesterol, maximum heart rate and ST depression) are active. Categorical variables cannot be active, because their numerical codes do not represent meaningful distances, so they are projected as supplementary qualitative variables. Heart disease diagnosis is deliberately kept out of the construction of the components: the axes are built only from clinical measurements, and the diagnosis is projected afterwards to check whether it is related to them. The number of major vessels is the result of a diagnostic procedure with only four possible values and is used as a supplementary quantitative variable.
+
+```{r data-preparation}
+# Load data
+heart_pca <- read.csv(
+  "../data/heart_disease_preprocessed.csv",
+  na.strings = c("", "NA", "?")
+)
+
+# Diagnosis of patients with missing values
+table(heart_pca$heart_disease[!complete.cases(heart_pca)])
+
+# Remove missing observations
+heart_pca <- na.omit(heart_pca)
+
+# Variable roles
+active_vars     <- c("age", "rest_bp", "cholesterol", "max_hr", "st_depression")
+quanti_sup_vars <- c("vessels")
+quali_sup_vars  <- c("sex", "chest_pain", "fasting_bs", "rest_ecg",
+                     "exercise_angina", "st_slope", "thal", "heart_disease")
+
+# Order columns: active, quantitative supplementary, qualitative supplementary
+pca_data <- heart_pca[, c(active_vars, quanti_sup_vars, quali_sup_vars)]
+
+# Convert categorical variables to factors
+pca_data[quali_sup_vars] <- lapply(pca_data[quali_sup_vars], as.factor)
+
+# Order diagnosis levels from no disease to most severe
+pca_data$heart_disease <- factor(
+  pca_data$heart_disease,
+  levels = c("None", "Level 1", "Level 2", "Level 3", "Level 4")
+)
+
+dim(pca_data)
+```
+
+
+# Exploratory Analysis
+
+## Distributions and Outliers
+
+```{r boxplots, fig.width=10, fig.height=6, out.width="100%"}
+par(mfrow = c(2, 3))
+for (var in active_vars) {
+  boxplot(pca_data[[var]], main = var)
+}
+par(mfrow = c(1, 1))
+```
+
+The active variables are measured in different units (years, mmHg, mg/dl, bpm, mm), so their scales differ strongly. Resting blood pressure (values around 180 to 200), cholesterol (above 400, with a maximum of 564 mg/dl), maximum heart rate (one value below 80) and ST depression (values between 4 and 6.2) show potential outliers, while age shows none. ST depression is clearly right-skewed: at least a quarter of the patients have a value of 0. The outlying values are clinically plausible and are kept in the analysis.
+
+## Correlations
+
+```{r correlation, results="markup"}
+R <- cor(pca_data[, active_vars])
+knitr::kable(round(R, 2), caption = "Correlation matrix of the active variables")
+```
+
+```{r factorability}
+# Bartlett's test of sphericity (H0: R = I)
+n <- nrow(pca_data)
+cortest.bartlett(R, n)
+
+# Kaiser-Meyer-Olkin measure of sampling adequacy (function from Lab 2)
+kmo <- function(x) {
+  x <- subset(x, complete.cases(x))
+  r <- cor(x)
+  r2 <- r^2
+  i <- solve(r)
+  d <- diag(i)
+  p2 <- (-i / sqrt(outer(d, d)))^2
+  diag(r2) <- diag(p2) <- 0
+  KMO <- sum(r2) / (sum(r2) + sum(p2))
+  MSA <- colSums(r2) / (colSums(r2) + colSums(p2))
+  return(list(KMO = KMO, MSA = MSA))
+}
+
+kmo(pca_data[, active_vars])
+```
+
+Only two correlations exceed 0.30 in absolute value: age with maximum heart rate (-0.39) and maximum heart rate with ST depression (-0.35). Bartlett's test of sphericity is significant ($\chi^2$ = 141.57, df = 10, p < 0.001), so the variables are not uncorrelated. However, the KMO measure (0.55) is below the recommended value of 0.6. The data are therefore only moderately suitable for PCA, and a strong reduction of dimensionality cannot be expected. PCA is still applied for exploratory purposes, to describe the main patterns among the clinical measurements and their relationship with heart disease.
+
+
+# PCA Application
+
+We ran PCA on the five active variables, standardised (scale.unit = TRUE). The categorical variables, including heart disease diagnosis, were included as supplementary qualitative variables, and the number of vessels as a supplementary quantitative variable. For later projection to help interpretation.
+
+```{r pca}
+# Column positions of supplementary variables
+quanti_sup_idx <- which(names(pca_data) %in% quanti_sup_vars)
+quali_sup_idx  <- which(names(pca_data) %in% quali_sup_vars)
+
+# Apply PCA
+res.pca <- PCA(
+  pca_data,
+  scale.unit = TRUE,
+  quanti.sup = quanti_sup_idx,
+  quali.sup  = quali_sup_idx,
+  ncp        = 5,
+  graph      = FALSE
+)
+
+res.pca$eig
+```
+
+
+# Component Selection
+
+```{r scree-plot, fig.width=7, fig.height=4, out.width="70%"}
+barplot(
+  res.pca$eig[, 1],
+  names.arg = paste0("PC", 1:nrow(res.pca$eig)),
+  xlab = "Principal Components",
+  ylab = "Eigenvalue",
+  main = "Scree Plot",
+  col = "steelblue"
+)
+abline(h = 1, col = "red", lty = 2)
+```
+
+The first two components have eigenvalues above 1 (1.80 and 1.10) and together explain 57.88% of the total variance. Both Kaiser's criterion and the scree plot, which flattens after the second component, suggest retaining two components. Reaching 80% of explained variance would require four of the five components, which is hardly a reduction and reflects the weak correlations between the variables. The third component (eigenvalue 0.87) explains less variance than a single original variable and is dominated by resting blood pressure alone. We therefore retain the first two components.
+
+
+# Variable Plot
+
+The variable plot shows the correlation of each active variable with the first two components. Longer arrows indicate variables that are better represented in the plane shown. The number of vessels appears as a dashed supplementary arrow.
+
+```{r variable-plot, fig.width=6, fig.height=6, out.width="60%"}
+plot(res.pca, choix = "var", axes = c(1, 2), title = "PCA - Variables")
+```
+
+
+# Dimension Interpretation
+
+```{r interpretation}
+# Loadings, contributions and quality of representation
+round(res.pca$var$coord[, 1:2], 3)
+round(res.pca$var$contrib[, 1:2], 2)
+round(res.pca$var$cos2[, 1:2], 3)
+
+# Description of the dimensions
+desc <- dimdesc(res.pca, axes = 1:2)
+desc$Dim.1$quanti
+desc$Dim.1$quali
+desc$Dim.2$quali
+round(res.pca$quali.sup$coord[levels(pca_data$heart_disease), 1:2], 2)
+```
+
+**Dim 1 (35.94%) – Age-related Cardiac Risk:** Age, ST depression and resting blood pressure correlate positively with Dim 1, while maximum heart rate correlates negatively. Patients with high scores are older, reach a lower maximum heart rate during exercise and show more ST depression, which suggests reduced exercise capacity and signs of ischaemia. The supplementary number of vessels is also positively correlated with this dimension (0.41), although it was not used to build it.
+
+**Dim 2 (21.94%) – Risk Factors Without Functional Impairment:** Cholesterol correlates most strongly with Dim 2, together with maximum heart rate and resting blood pressure, while ST depression correlates negatively and age is almost unrelated. Patients with high scores have high cholesterol and blood pressure but no functional signs of disease. Resting blood pressure is only partly represented in this plane (cos² = 0.46), as a large part of its variance is captured by the third component.
+
+
+# Individuals by Heart Disease
+
+```{r individuals, fig.width=8, fig.height=6, out.width="75%"}
+hd_idx <- which(names(pca_data) == "heart_disease")
+
+plot(
+  res.pca,
+  choix = "ind",
+  habillage = hd_idx,
+  label = "none",
+  invisible = "quali",
+  title = "PCA - Individuals by Heart Disease"
+)
+```
+
+Patients without heart disease are mainly located on the negative side of Dim 1, while patients with heart disease have higher scores, with Level 4 lying furthest to the right. Heart disease is the supplementary variable most strongly associated with Dim 1 (R² = 0.256), followed by ST slope (0.214), chest pain type (0.139), thallium test (0.108) and exercise-induced angina (0.100). However, the diagnosis groups overlap considerably, and Levels 2 and 3 are not distinguished. Dim 1 therefore separates the groups on average rather than individually, which is expected because the diagnosis was not used to build the components. Dim 2 is only weakly associated with heart disease (R² = 0.052). These results are consistent with the MCA, in which patients without heart disease were also located on one side of the first dimension and the severity levels overlapped.

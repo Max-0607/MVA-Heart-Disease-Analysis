@@ -1,0 +1,395 @@
+---
+title: "Effect of Outliers on PCA, MCA and MDS"
+subtitle: "Heart Disease Dataset"
+output:
+  pdf_document:
+    toc: false
+    number_sections: true
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  results = "hide",
+  fig.align = "center",
+  out.width = "80%"
+)
+
+library(FactoMineR)
+library(psych)
+library(cluster)
+library(MASS)
+```
+
+
+# Data and Outlier Detection
+
+The analyses are repeated on the same 297 patients after removing outliers, to check whether the results of the PCA, MCA and MDS depend on a few extreme patients. All other settings (variables, roles, standardisation, distance) are kept identical to the original reports.
+
+Outliers are identified on the five continuous variables (age, resting blood pressure, cholesterol, maximum heart rate and ST depression). The number of vessels is not considered, as it only takes the values 0 to 3.
+
+```{r data}
+heart <- read.csv(
+  "../data/heart_disease_preprocessed.csv",
+  na.strings = c("", "NA", "?")
+)
+heart <- na.omit(heart)
+rownames(heart) <- NULL
+
+cont_vars <- c("age", "rest_bp", "cholesterol", "max_hr", "st_depression")
+
+dim(heart)
+```
+
+## Univariate Outliers (IQR Rule)
+
+A value is considered an outlier if it lies more than 1.5 times the interquartile range below the first quartile or above the third quartile. This is the same rule used by the boxplots in the PCA report.
+
+```{r iqr, results="markup"}
+iqr_bounds <- t(sapply(cont_vars, function(v) {
+  q <- quantile(heart[[v]], c(0.25, 0.75))
+  i <- diff(q)
+  c(lower = unname(q[1] - 1.5 * i), upper = unname(q[2] + 1.5 * i))
+}))
+
+iqr_flag <- sapply(cont_vars, function(v)
+  heart[[v]] < iqr_bounds[v, "lower"] | heart[[v]] > iqr_bounds[v, "upper"])
+
+iqr_table <- data.frame(
+  Lower    = round(iqr_bounds[, "lower"], 2),
+  Upper    = round(iqr_bounds[, "upper"], 2),
+  Outliers = colSums(iqr_flag)
+)
+knitr::kable(iqr_table, caption = "IQR bounds and number of outliers per variable")
+
+out_iqr <- rowSums(iqr_flag) > 0
+n_iqr <- sum(out_iqr)
+```
+
+## Multivariate Outliers (Mahalanobis Distance)
+
+As a multivariate check, the squared Mahalanobis distance of each patient to the centre of the five continuous variables is compared with the 97.5% quantile of the $\chi^2$ distribution with 5 degrees of freedom. This also detects patients with an unusual combination of values that are not extreme in any single variable.
+
+```{r mahalanobis, fig.width=8, fig.height=4, out.width="75%"}
+md <- mahalanobis(heart[, cont_vars],
+                  colMeans(heart[, cont_vars]),
+                  cov(heart[, cont_vars]))
+cutoff <- qchisq(0.975, df = length(cont_vars))
+out_md <- md > cutoff
+n_md <- sum(out_md)
+n_both <- sum(out_iqr & out_md)
+
+plot(md, pch = 19, cex = 0.7,
+     col = ifelse(out_iqr, "firebrick", "grey50"),
+     xlab = "Patient", ylab = "Squared Mahalanobis distance",
+     main = "Mahalanobis distance (red: IQR outlier)")
+abline(h = cutoff, col = "steelblue", lty = 2)
+```
+
+The IQR rule identifies `r n_iqr` patients (`r round(100 * n_iqr / nrow(heart), 1)`% of the sample) with at least one outlying value, mainly in resting blood pressure, cholesterol and ST depression. The Mahalanobis distance identifies `r n_md` patients, `r n_both` of which are also IQR outliers. The two criteria largely agree, which shows that most extreme patients are extreme in at least one single variable. We remove the `r n_iqr` IQR outliers, as they correspond to the outlying values discussed in the PCA report.
+
+```{r removed, results="markup"}
+removed <- heart[out_iqr, c(cont_vars, "heart_disease")]
+knitr::kable(removed, row.names = FALSE,
+             caption = "Patients removed as outliers")
+
+diag_comp <- rbind(
+  `All patients (%)` = round(100 * prop.table(table(factor(heart$heart_disease,
+    levels = c("None", "Level 1", "Level 2", "Level 3", "Level 4")))), 1),
+  `Removed (%)` = round(100 * prop.table(table(factor(removed$heart_disease,
+    levels = c("None", "Level 1", "Level 2", "Level 3", "Level 4")))), 1)
+)
+knitr::kable(diag_comp, caption = "Diagnosis distribution of all and removed patients")
+
+heart_out <- heart[!out_iqr, ]
+
+# Save dataset without outliers
+write.csv(heart_out, "../data/heart_disease_no_outliers.csv",
+          row.names = FALSE, na = "")
+
+n_full <- nrow(heart)
+n_out  <- nrow(heart_out)
+```
+
+After removal, `r n_out` patients remain. The outlying values are clinically plausible and are not measurement errors. However, the removed patients are not representative of the sample: `r round(100 * mean(removed$heart_disease != "None"), 1)`% of them have heart disease, compared with `r round(100 * mean(heart$heart_disease != "None"), 1)`% of all patients. Removing them therefore also removes a disproportionate number of patients with heart disease, which has to be kept in mind when comparing the results.
+
+```{r helpers}
+# Helper: prepare data for each method -------------------------------------
+hd_levels <- c("None", "Level 1", "Level 2", "Level 3", "Level 4")
+categorical_vars <- c("sex", "chest_pain", "fasting_bs", "rest_ecg",
+                      "exercise_angina", "st_slope", "thal")
+
+prep_factors <- function(d) {
+  d[categorical_vars] <- lapply(d[categorical_vars], as.factor)
+  d$heart_disease <- factor(d$heart_disease, levels = hd_levels)
+  d
+}
+
+r2_dim <- function(y, x) summary(lm(y ~ x))$r.squared
+
+heart     <- prep_factors(heart)
+heart_out <- prep_factors(heart_out)
+```
+
+
+# PCA With and Without Outliers
+
+```{r pca}
+quanti_sup_vars <- "vessels"
+quali_sup_vars  <- c(categorical_vars, "heart_disease")
+
+run_pca <- function(d) {
+  pd <- d[, c(cont_vars, quanti_sup_vars, quali_sup_vars)]
+  PCA(pd, scale.unit = TRUE,
+      quanti.sup = which(names(pd) %in% quanti_sup_vars),
+      quali.sup  = which(names(pd) %in% quali_sup_vars),
+      ncp = 5, graph = FALSE)
+}
+
+pca_full <- run_pca(heart)
+pca_out  <- run_pca(heart_out)
+
+# Factorability
+kmo_full <- KMO(cor(heart[, cont_vars]))$MSA
+kmo_out  <- KMO(cor(heart_out[, cont_vars]))$MSA
+bart_full <- cortest.bartlett(cor(heart[, cont_vars]), n = n_full)$chisq
+bart_out  <- cortest.bartlett(cor(heart_out[, cont_vars]), n = n_out)$chisq
+
+# Heart disease association with Dim 1
+pca_r2 <- function(res, d) r2_dim(res$ind$coord[, 1], d$heart_disease)
+pca_r2_full <- pca_r2(pca_full, heart)
+pca_r2_out  <- pca_r2(pca_out, heart_out)
+```
+
+```{r pca-tables, results="markup"}
+eig_tab <- cbind(
+  `Eigenvalue (all)`     = pca_full$eig[, 1],
+  `% var (all)`          = pca_full$eig[, 2],
+  `Eigenvalue (no out.)` = pca_out$eig[, 1],
+  `% var (no out.)`      = pca_out$eig[, 2]
+)
+rownames(eig_tab) <- paste0("PC", 1:5)
+knitr::kable(round(eig_tab, 2), caption = "PCA eigenvalues with and without outliers")
+
+# Align signs of the loadings so that the columns are comparable
+sgn <- sign(diag(cor(pca_full$var$coord[, 1:2], pca_out$var$coord[, 1:2])))
+load_tab <- cbind(
+  `Dim 1 (all)`     = pca_full$var$coord[, 1],
+  `Dim 1 (no out.)` = pca_out$var$coord[, 1] * sgn[1],
+  `Dim 2 (all)`     = pca_full$var$coord[, 2],
+  `Dim 2 (no out.)` = pca_out$var$coord[, 2] * sgn[2]
+)
+knitr::kable(round(load_tab, 3),
+             caption = "Correlations of the variables with the first two components")
+
+# Largest change in a loading
+load_diff <- abs(load_tab[, c(2, 4)] - load_tab[, c(1, 3)])
+max_ld <- which(load_diff == max(load_diff), arr.ind = TRUE)[1, ]
+max_ld_var <- rownames(load_diff)[max_ld[1]]
+max_ld_dim <- c("Dim 1", "Dim 2")[max_ld[2]]
+```
+
+```{r pca-plots, fig.width=6, fig.height=6, out.width="48%", fig.show="hold"}
+plot(pca_full, choix = "var", axes = c(1, 2), title = "PCA - All patients")
+plot(pca_out,  choix = "var", axes = c(1, 2), title = "PCA - Without outliers")
+```
+
+Without outliers, the first two components explain `r round(pca_out$eig[2, 3], 2)`% of the variance, compared with `r round(pca_full$eig[2, 3], 2)`% with all patients. The KMO measure changes from `r round(kmo_full, 2)` to `r round(kmo_out, 2)` and Bartlett's statistic from `r round(bart_full, 1)` to `r round(bart_out, 1)`. The eigenvalues are almost unchanged, and the correlations of the variables with the components change only slightly: the largest change is `r round(max(load_diff), 3)` (`r max_ld_var` on `r max_ld_dim`), and no variable changes sign or loses its role. The interpretation of the components is therefore the same as in the PCA report: Dim 1 still contrasts older patients with high ST depression and blood pressure against patients with a high maximum heart rate, and Dim 2 is still mainly driven by cholesterol. The KMO measure remains below 0.6, so the moderate suitability of the data for PCA is not caused by the outliers but by the weak correlations between the variables.
+
+The association of Dim 1 with heart disease changes from R² = `r round(pca_r2_full, 3)` to R² = `r round(pca_r2_out, 3)`.
+
+
+# MCA With and Without Outliers
+
+In the MCA the numerical variables are dichotomised at their mean. Since the outliers shift the means (especially of cholesterol and ST depression), the categories are recomputed on the reduced dataset.
+
+```{r mca}
+num_vars_mca <- c("age", "rest_bp", "cholesterol", "max_hr", "st_depression")
+
+prep_mca <- function(d) {
+  d <- d[, c(num_vars_mca, "vessels", categorical_vars, "heart_disease")]
+  for (v in num_vars_mca) {
+    d[[v]] <- ifelse(d[[v]] > mean(d[[v]]), "Above average", "Below average")
+  }
+  d[] <- lapply(d, as.factor)
+  d$heart_disease <- factor(d$heart_disease, levels = hd_levels)
+  d
+}
+
+run_mca <- function(d) {
+  MCA(d, quali.sup = which(names(d) == "heart_disease"),
+      ncp = 5, graph = FALSE)
+}
+
+mca_data_full <- prep_mca(heart)
+mca_data_out  <- prep_mca(heart_out)
+mca_full <- run_mca(mca_data_full)
+mca_out  <- run_mca(mca_data_out)
+
+mca_r2_full <- r2_dim(mca_full$ind$coord[, 1], mca_data_full$heart_disease)
+mca_r2_out  <- r2_dim(mca_out$ind$coord[, 1],  mca_data_out$heart_disease)
+
+# Retained patients whose category changes when the means are recomputed
+switch_cat <- sapply(num_vars_mca, function(v) {
+  x <- heart_out[[v]]
+  sum((x > mean(heart[[v]])) != (x > mean(heart_out[[v]])))
+})
+n_switch <- sum(switch_cat)
+
+# Means used for the dichotomisation
+means_tab <- cbind(`Mean (all)`     = colMeans(heart[, num_vars_mca]),
+                   `Mean (no out.)` = colMeans(heart_out[, num_vars_mca]))
+```
+
+```{r mca-tables, results="markup"}
+knitr::kable(round(means_tab, 2), caption = "Means used to dichotomise the numerical variables")
+
+mca_eig <- cbind(
+  `Eigenvalue (all)`     = mca_full$eig[1:5, 1],
+  `% inertia (all)`      = mca_full$eig[1:5, 2],
+  `Eigenvalue (no out.)` = mca_out$eig[1:5, 1],
+  `% inertia (no out.)`  = mca_out$eig[1:5, 2]
+)
+rownames(mca_eig) <- paste0("Dim ", 1:5)
+knitr::kable(round(mca_eig, 3), caption = "MCA eigenvalues with and without outliers")
+
+# R² of the variables with Dim 1 and Dim 2
+mca_desc <- function(res) {
+  r2 <- res$var$eta2[, 1:2]
+  r2
+}
+mca_r2_tab <- cbind(mca_desc(mca_full), mca_desc(mca_out))
+colnames(mca_r2_tab) <- c("Dim 1 (all)", "Dim 2 (all)",
+                          "Dim 1 (no out.)", "Dim 2 (no out.)")
+knitr::kable(round(mca_r2_tab[order(-mca_r2_tab[, 1]), ], 3),
+             caption = "Squared correlation ratio of the active variables with the first two MCA dimensions")
+```
+
+```{r mca-plots, fig.width=7, fig.height=6, out.width="48%", fig.show="hold"}
+plot.MCA(mca_full, invisible = c("ind", "quali.sup"), axes = c(1, 2),
+         title = "MCA - All patients")
+plot.MCA(mca_out,  invisible = c("ind", "quali.sup"), axes = c(1, 2),
+         title = "MCA - Without outliers")
+```
+
+The first three dimensions explain `r round(mca_out$eig[3, 3], 2)`% of the inertia without outliers, compared with `r round(mca_full$eig[3, 3], 2)`% with all patients. Removing the outliers lowers the means of resting blood pressure, cholesterol and ST depression slightly, so only `r n_switch` of the `r n_out * length(num_vars_mca)` category assignments (`r round(100 * n_switch / (n_out * length(num_vars_mca)), 1)`%) change among the retained patients. The eigenvalues and the association of the variables with the dimensions are almost unchanged. MCA is by construction robust to outliers, because the dichotomisation at the mean already removes the information about how extreme a value is: a cholesterol of 564 mg/dl is simply "Above average".
+
+The association of Dim 1 with heart disease changes from R² = `r round(mca_r2_full, 3)` to R² = `r round(mca_r2_out, 3)`.
+
+
+# MDS With and Without Outliers
+
+```{r mds}
+mds_vars <- c(cont_vars, "vessels", categorical_vars)
+
+run_mds <- function(d) {
+  dg  <- daisy(d[, mds_vars], metric = "gower")
+  cm  <- cmdscale(dg, k = 5, eig = TRUE)
+  dnm <- dg
+  if (any(as.vector(dnm) == 0)) dnm[dnm == 0] <- 1e-6
+  nm  <- isoMDS(dnm, k = 2, trace = FALSE)
+  eig <- cm$eig
+  list(
+    points = cm$points,
+    gof2   = sum(eig[1:2]) / sum(eig[eig > 0]) * 100,
+    r2fit  = cor(as.vector(dg), as.vector(dist(cm$points[, 1:2])))^2,
+    stress = nm$stress,
+    r2     = t(sapply(c(mds_vars, "heart_disease"), function(v)
+      c(Dim.1 = r2_dim(cm$points[, 1], d[[v]]),
+        Dim.2 = r2_dim(cm$points[, 2], d[[v]]))))
+  )
+}
+
+mds_full <- run_mds(heart)
+mds_out  <- run_mds(heart_out)
+```
+
+```{r mds-tables, results="markup"}
+mds_r2_tab <- cbind(mds_full$r2, mds_out$r2)
+colnames(mds_r2_tab) <- c("Dim 1 (all)", "Dim 2 (all)",
+                          "Dim 1 (no out.)", "Dim 2 (no out.)")
+knitr::kable(round(mds_r2_tab[order(-mds_r2_tab[, 1]), ], 3),
+             caption = "R² between the classical MDS dimensions and the variables")
+```
+
+```{r mds-plots, fig.width=12, fig.height=6, out.width="100%"}
+cols5 <- c("steelblue", "gold", "orange", "red", "darkred")
+par(mfrow = c(1, 2), mar = c(7, 4, 4, 1))
+
+# Align sign of the axes with the full solution (Dim 1: disease on the right)
+flip <- function(p, d) {
+  if (mean(p[d$heart_disease != "None", 1]) < 0) p[, 1] <- -p[, 1]
+  p
+}
+p_full <- flip(mds_full$points, heart)
+p_out  <- flip(mds_out$points, heart_out)
+
+# Dim 2: normal resting ECG on the positive side in both maps
+flip2 <- function(p, d) {
+  if (mean(p[d$rest_ecg == "Normal", 2]) < 0) p[, 2] <- -p[, 2]
+  p
+}
+p_full <- flip2(p_full, heart)
+p_out  <- flip2(p_out, heart_out)
+
+for (k in 1:2) {
+  p <- list(p_full, p_out)[[k]]
+  d <- list(heart, heart_out)[[k]]
+  plot(p[, 1], p[, 2], col = cols5[d$heart_disease], pch = 19, cex = 0.8,
+       xlab = "Dimension 1", ylab = "Dimension 2",
+       main = c("Classical MDS - All patients",
+                "Classical MDS - Without outliers")[k])
+  abline(h = 0, v = 0, lty = 2, col = "grey")
+  legend("bottom", inset = c(0, -0.33), xpd = TRUE, horiz = TRUE,
+         legend = hd_levels, col = cols5, pch = 19, bty = "n", cex = 0.9)
+}
+par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1)
+```
+
+Without outliers, the first two MDS dimensions explain `r round(mds_out$gof2, 1)`% of the sum of the positive eigenvalues (`r round(mds_full$gof2, 1)`% with all patients), and the stress of the two-dimensional non-metric solution is `r round(mds_out$stress, 1)`% (`r round(mds_full$stress, 1)`% with all patients). The variables associated with Dim 1 and their R² values are practically the same, so Dim 1 is still the clinical heart disease profile, and the diagnosis groups are positioned as before. Dim 2 is still mainly determined by resting ECG (R² from `r round(mds_full$r2["rest_ecg", "Dim.2"], 3)` to `r round(mds_out$r2["rest_ecg", "Dim.2"], 3)`) and sex (R² from `r round(mds_full$r2["sex", "Dim.2"], 3)` to `r round(mds_out$r2["sex", "Dim.2"], 3)`).
+
+Note that the Gower distance scales each numerical variable by its range. Removing the outliers reduces the ranges of resting blood pressure, cholesterol and ST depression, so differences in these variables count slightly more in the reduced data. This effect is small, because the categorical variables dominate the Gower distance in both cases.
+
+
+# Summary
+
+```{r summary, results="markup"}
+summary_tab <- data.frame(
+  `All patients` = c(
+    n_full,
+    pca_full$eig[2, 3], kmo_full, pca_r2_full,
+    mca_full$eig[3, 3], mca_r2_full,
+    mds_full$gof2, mds_full$stress, mds_full$r2["heart_disease", "Dim.1"]),
+  `Without outliers` = c(
+    n_out,
+    pca_out$eig[2, 3], kmo_out, pca_r2_out,
+    mca_out$eig[3, 3], mca_r2_out,
+    mds_out$gof2, mds_out$stress, mds_out$r2["heart_disease", "Dim.1"]),
+  check.names = FALSE
+)
+rownames(summary_tab) <- c(
+  "Number of patients",
+  "PCA: % variance PC1-PC2", "PCA: KMO", "PCA: R² heart disease (Dim 1)",
+  "MCA: % inertia Dim 1-3", "MCA: R² heart disease (Dim 1)",
+  "MDS: GOF Dim 1-2 (%)", "MDS: non-metric stress 2D (%)",
+  "MDS: R² heart disease (Dim 1)")
+summary_tab$Change <- summary_tab[, 2] - summary_tab[, 1]
+knitr::kable(round(summary_tab, 3), caption = "Main results with and without outliers")
+```
+
+```{r summary-max}
+pct_rows <- c("PCA: % variance PC1-PC2", "MCA: % inertia Dim 1-3",
+              "MDS: GOF Dim 1-2 (%)", "MDS: non-metric stress 2D (%)")
+max_pct_change <- max(abs(summary_tab[pct_rows, "Change"]))
+r2_rows <- grep("R²", rownames(summary_tab), value = TRUE)
+max_r2_change <- max(abs(summary_tab[r2_rows, "Change"]))
+```
+
+Removing the `r n_iqr` outliers has almost no effect on any of the three analyses. The explained variance, inertia, goodness of fit and stress change by at most `r round(max_pct_change, 2)` percentage points, and the association of the first dimension with heart disease changes by at most `r round(max_r2_change, 3)` in R². The interpretation of the dimensions is the same in all three methods.
+
+There are two reasons for this. First, the outliers are few (`r round(100 * n_iqr / n_full, 1)`% of the patients) and are extreme in only one variable at a time. Second, each method limits their influence: PCA standardises the variables, MCA dichotomises them at the mean, and the Gower distance in MDS caps the contribution of every variable at 1.
+
+We therefore keep the full dataset for the main analyses. The outliers are clinically plausible, removing them does not change the conclusions, and removing them would disproportionately exclude patients with heart disease. The weak low-dimensional structure found in PCA, MCA and MDS is a property of the data and is not caused by a few extreme patients.

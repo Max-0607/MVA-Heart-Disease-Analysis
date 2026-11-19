@@ -1,0 +1,316 @@
+---
+title: "Multidimensional Scaling"
+subtitle: "Heart Disease Dataset"
+output:
+  pdf_document:
+    toc: false
+    number_sections: true
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  results = "hide",
+  fig.align = "center",
+  out.width = "80%"
+)
+
+library(cluster)  # daisy(): Gower distance
+library(MASS)     # isoMDS(), sammon(), Shepard()
+
+# Format absolute correlations for the text (avoids "1 and 1")
+fmt_cor <- function(x) paste(sprintf("%.3f", abs(x)), collapse = " and ")
+```
+
+
+# Data Preparation
+
+The preprocessed Heart Disease dataset is used. As in the PCA and MCA, the six patients with missing values are removed, leaving 297 patients. Unlike PCA (only continuous variables) and MCA (only categorical variables, continuous ones dichotomised at the mean), MDS works on a distance matrix and can therefore use all variables in their original form.
+
+All 13 clinical variables (6 numerical, 7 categorical) are used to compute the distances between patients. Heart disease diagnosis is excluded, so that the configuration is built only from the clinical measurements, and is used afterwards to colour the map.
+
+```{r data-preparation}
+# Load data and remove missing observations
+heart_mds <- read.csv(
+  "../data/heart_disease_preprocessed.csv",
+  na.strings = c("", "NA", "?")
+)
+heart_mds <- na.omit(heart_mds)
+
+# Variable roles
+numeric_vars     <- c("age", "rest_bp", "cholesterol", "max_hr",
+                      "st_depression", "vessels")
+categorical_vars <- c("sex", "chest_pain", "fasting_bs", "rest_ecg",
+                      "exercise_angina", "st_slope", "thal")
+
+# Convert categorical variables to factors
+heart_mds[categorical_vars] <- lapply(heart_mds[categorical_vars], as.factor)
+
+# Order diagnosis levels from no disease to most severe
+heart_mds$heart_disease <- factor(
+  heart_mds$heart_disease,
+  levels = c("None", "Level 1", "Level 2", "Level 3", "Level 4")
+)
+
+# Binary diagnosis (used for colouring the plots)
+heart_mds$hd_binary <- factor(
+  ifelse(heart_mds$heart_disease == "None", "No disease", "Disease"),
+  levels = c("No disease", "Disease")
+)
+
+# Data used to build the distances (diagnosis excluded)
+mds_data <- heart_mds[, c(numeric_vars, categorical_vars)]
+
+dim(mds_data)
+```
+
+
+# Distance Matrix
+
+Euclidean distance requires numerical variables and is dominated by the variables with the largest scale (e.g. cholesterol in mg/dl). Since the dataset mixes numerical and categorical variables, the Gower distance is used (`daisy()` from the *cluster* package). Each numerical variable is scaled by its range and each categorical variable contributes 0 (same category) or 1 (different category), so every variable has the same weight and the distance lies between 0 and 1.
+
+```{r distance}
+# Gower distance between patients
+d_gower <- daisy(mds_data, metric = "gower")
+
+summary(d_gower)
+
+# Check for identical patients (zero distances are a problem for isoMDS)
+sum(as.vector(d_gower) == 0)
+```
+
+
+# Classical (Metric) MDS
+
+```{r metric-mds}
+# Classical MDS (principal coordinates) on the Gower distance
+mds_gower <- cmdscale(d_gower, k = 5, eig = TRUE)
+
+eig <- mds_gower$eig
+n_neg <- sum(eig < -1e-10)
+n_neg
+
+# Goodness of fit for k = 1, ..., 5
+gof <- t(sapply(1:5, function(k) {
+  c(k = k,
+    GOF1 = sum(eig[1:k]) / sum(abs(eig)) * 100,
+    GOF2 = sum(eig[1:k]) / sum(eig[eig > 0]) * 100)
+}))
+round(gof, 2)
+```
+
+```{r eigenvalue-plot, fig.width=7, fig.height=4, out.width="70%"}
+barplot(
+  eig[1:15],
+  names.arg = 1:15,
+  xlab = "Dimension",
+  ylab = "Eigenvalue",
+  main = "Classical MDS - Eigenvalues (Gower distance)",
+  col = "steelblue"
+)
+```
+
+```{r gof-table, results="markup"}
+knitr::kable(round(gof, 2),
+             col.names = c("k", "GOF 1 (%)", "GOF 2 (%)"),
+             caption = "Goodness of fit of classical MDS")
+```
+
+```{r observed-vs-fitted, fig.width=6, fig.height=5, out.width="55%"}
+# Observed Gower distances vs. distances in the 2D configuration
+d_fit2 <- dist(mds_gower$points[, 1:2])
+plot(as.vector(d_gower), as.vector(d_fit2),
+     pch = ".", col = rgb(0, 0, 1, 0.3),
+     xlab = "Observed Gower distance",
+     ylab = "Distance in 2D configuration",
+     main = "Observed vs. fitted distances")
+abline(lm(as.vector(d_fit2) ~ as.vector(d_gower)), col = "red")
+
+R2_metric <- cor(as.vector(d_gower), as.vector(d_fit2))^2
+R2_metric
+```
+
+The Gower distance is not Euclidean, so `cmdscale()` returns `r n_neg` negative eigenvalues and the two goodness-of-fit measures differ. (Taking the square root of the Gower distance would give a Euclidean distance without negative eigenvalues.) The first two dimensions explain `r round(gof[2, "GOF2"], 1)`% of the sum of the positive eigenvalues (`r round(gof[2, "GOF1"], 1)`% of the sum of absolute eigenvalues). The first dimension stands out clearly, after which the eigenvalues decrease slowly, so, as in PCA and MCA, no small number of dimensions captures most of the variability. The squared correlation between the observed distances and the distances in the two-dimensional map is `r round(R2_metric, 2)`. We retain two dimensions for interpretation.
+
+
+# Dimension Interpretation
+
+To interpret the MDS dimensions, each dimension is regressed on each original variable. For numerical variables, R² is the squared correlation; for categorical variables, it is the proportion of variance of the coordinates explained by the categories (as in `dimdesc()`).
+
+```{r interpretation, results="markup"}
+coords <- data.frame(Dim.1 = mds_gower$points[, 1],
+                     Dim.2 = mds_gower$points[, 2])
+
+all_vars <- c(numeric_vars, categorical_vars, "heart_disease")
+
+r2_table <- t(sapply(all_vars, function(v) {
+  x <- heart_mds[[v]]
+  c(Dim.1 = summary(lm(coords$Dim.1 ~ x))$r.squared,
+    Dim.2 = summary(lm(coords$Dim.2 ~ x))$r.squared)
+}))
+
+knitr::kable(round(r2_table[order(-r2_table[, "Dim.1"]), ], 3),
+             caption = "R² between MDS dimensions and the original variables")
+```
+
+```{r direction}
+# Sign of the association (numerical variables)
+round(cor(heart_mds[, numeric_vars], coords), 2)
+
+# Mean coordinates per category (categorical variables)
+for (v in c(categorical_vars, "heart_disease")) {
+  cat("\n", v, "\n")
+  print(round(sapply(coords, function(z) tapply(z, heart_mds[[v]], mean)), 3))
+}
+```
+
+**Dim 1 – Clinical Heart Disease Profile:** The variables most strongly associated with Dim 1 are the thallium test, exercise-induced angina, chest pain type, ST slope, ST depression and maximum heart rate, followed by the number of vessels. Patients on the positive side have asymptomatic chest pain, exercise-induced angina, a flat or downsloping ST segment, a fixed or reversible thallium defect, more ST depression, a lower maximum heart rate and more affected vessels. Heart disease diagnosis, which was not used to build the distances, is also strongly associated with this dimension (R² = `r round(r2_table["heart_disease", "Dim.1"], 3)`). This dimension corresponds to the first dimension of the MCA and, for the numerical variables, to the first component of the PCA.
+
+**Dim 2 – Resting ECG and Sex:** Dim 2 is mainly determined by resting ECG (R² = `r round(r2_table["rest_ecg", "Dim.2"], 3)`) and sex (R² = `r round(r2_table["sex", "Dim.2"], 3)`). Patients with a normal resting ECG and male patients lie on the positive side, while patients with LV hypertrophy or ST-T abnormality and female patients lie on the negative side. The thallium test is also partly related to Dim 2 (R² = `r round(r2_table["thal", "Dim.2"], 3)`), while the numerical variables are only weakly related to this dimension. Because the Gower distance gives a full unit of distance for every categorical mismatch, binary variables such as sex and resting ECG split the patients into separate groups, which is visible as bands in the configuration plot.
+
+
+# MDS Configuration by Heart Disease
+
+```{r config-plot, fig.width=12, fig.height=6, out.width="100%"}
+par(mfrow = c(1, 2))
+
+# Binary diagnosis
+cols2 <- c("steelblue", "firebrick")
+par(mar = c(7, 4, 4, 1))
+plot(coords$Dim.1, coords$Dim.2,
+     col = cols2[heart_mds$hd_binary], pch = 19, cex = 0.8,
+     xlab = "Dimension 1", ylab = "Dimension 2",
+     main = "Classical MDS - Heart disease (yes/no)")
+abline(h = 0, v = 0, lty = 2, col = "grey")
+legend("bottom", inset = c(0, -0.33), xpd = TRUE, horiz = TRUE,
+       legend = levels(heart_mds$hd_binary),
+       col = cols2, pch = 19, bty = "n", cex = 0.9)
+
+# Severity levels
+cols5 <- c("steelblue", "gold", "orange", "red", "darkred")
+plot(coords$Dim.1, coords$Dim.2,
+     col = cols5[heart_mds$heart_disease], pch = 19, cex = 0.8,
+     xlab = "Dimension 1", ylab = "Dimension 2",
+     main = "Classical MDS - Heart disease severity")
+abline(h = 0, v = 0, lty = 2, col = "grey")
+legend("bottom", inset = c(0, -0.33), xpd = TRUE, horiz = TRUE,
+       legend = levels(heart_mds$heart_disease),
+       col = cols5, pch = 19, bty = "n", cex = 0.9)
+
+par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1)
+```
+
+```{r group-means, results="markup"}
+# Mean position and size of each diagnosis group
+group_means <- data.frame(
+  n     = as.vector(table(heart_mds$heart_disease)),
+  Dim.1 = tapply(coords$Dim.1, heart_mds$heart_disease, mean),
+  Dim.2 = tapply(coords$Dim.2, heart_mds$heart_disease, mean)
+)
+knitr::kable(round(group_means, 3),
+             caption = "Mean MDS coordinates per diagnosis group")
+
+# R² of the binary diagnosis
+r2_bin <- summary(lm(coords$Dim.1 ~ heart_mds$hd_binary))$r.squared
+```
+
+Patients without heart disease are mainly located on the negative side of Dim 1 (mean `r sprintf("%.3f", group_means["None", "Dim.1"])`), while all disease levels lie on average on the positive side. The binary diagnosis alone explains `r round(100 * r2_bin, 1)`% of the variance of Dim 1. However, the groups overlap in the centre of the map, and the severity levels are hardly separated from each other: the mean Dim 1 coordinates of Levels 1 to 4 range only from `r sprintf("%.3f", min(group_means[-1, "Dim.1"]))` to `r sprintf("%.3f", max(group_means[-1, "Dim.1"]))`, and Levels 3 and 4 contain few patients. Dim 1 therefore separates patients with and without heart disease rather than the severity of the disease. Dim 2 does not separate the diagnosis groups.
+
+These results agree with the PCA and the MCA. The association between Dim 1 and the diagnosis (R² = `r round(r2_table["heart_disease", "Dim.1"], 3)`) is similar to that of the first MCA dimension (0.524) and clearly stronger than that of the first principal component (0.256). This is expected, because the categorical variables most related to heart disease (thallium test, chest pain type, exercise-induced angina, ST slope) contribute to the MDS and MCA distances, whereas in PCA they were only supplementary.
+
+
+# Comparison with Euclidean Distance
+
+As a check, classical MDS is also applied to the Euclidean distance computed on the standardised numerical variables only. In this case, classical MDS is equivalent to PCA: the coordinates are identical to the principal component scores (up to reflection of the axes).
+
+```{r euclidean}
+d_eucl   <- dist(scale(heart_mds[, numeric_vars]))
+mds_eucl <- cmdscale(d_eucl, k = 2, eig = TRUE)
+mds_eucl$GOF
+
+# Compare with PCA scores (prcomp)
+pca_scores <- prcomp(heart_mds[, numeric_vars], scale. = TRUE)$x[, 1:2]
+cor_pca <- diag(cor(mds_eucl$points, pca_scores))
+round(cor_pca, 4)
+```
+
+The absolute correlations between the first two MDS coordinates and the first two PCA scores are `r fmt_cor(cor_pca)`, confirming that classical MDS on Euclidean distances reproduces PCA. With only Euclidean distance, however, the seven categorical variables would have to be left out. The Gower distance allows them to be included, which is the main advantage of MDS for this dataset. (The vessels variable is included here as numerical, so these results differ slightly from the PCA report, where it was supplementary.)
+
+
+# Non-metric MDS
+
+Non-metric MDS (Kruskal's method, `isoMDS()`) only tries to preserve the rank order of the distances, not their values. The classical solution is used as the starting configuration.
+
+```{r nmds}
+# Remove exact zero distances (identical patients) if necessary
+d_nm <- d_gower
+if (any(as.vector(d_nm) == 0)) d_nm[d_nm == 0] <- 1e-6
+
+# Stress for 1 to 5 dimensions
+k_max <- 5
+stress <- sapply(1:k_max, function(k)
+  isoMDS(d_nm, k = k, trace = FALSE)$stress)
+round(stress, 2)
+
+# Two-dimensional solution
+nmds <- isoMDS(d_nm, k = 2, trace = FALSE)
+nmds$stress
+```
+
+```{r stress-plot, fig.width=7, fig.height=4, out.width="65%"}
+plot(1:k_max, stress, type = "b", pch = 19,
+     xlab = "Number of dimensions", ylab = "Stress (%)",
+     main = "Non-metric MDS - Stress per dimension")
+abline(h = c(5, 10, 20), col = "grey", lty = 2)
+```
+
+```{r shepard, fig.width=6, fig.height=5, out.width="55%"}
+nmds_sh <- Shepard(d_nm, nmds$points)
+plot(nmds_sh, pch = ".", col = rgb(0, 0, 1, 0.3),
+     xlab = "Observed Gower distance", ylab = "Configuration distance",
+     main = "Shepard diagram (2D non-metric MDS)")
+lines(nmds_sh$x, nmds_sh$yf, type = "S", col = "red")
+```
+
+The stress decreases slowly with the number of dimensions. The two-dimensional solution has a stress of `r round(nmds$stress, 1)`%, which is poor according to Kruskal's guidelines (< 5% excellent, 5–10% good, 10–20% fair, > 20% poor). A fair fit requires at least `r which(stress < 20)[1]` dimensions. The Shepard diagram shows that the fitted step function increases monotonically, but the configuration distances are widely scattered around it over the whole range of observed distances: patients at the same observed distance can be placed close together or far apart in the map. This agrees with the low goodness of fit of the classical solution: the distances between patients cannot be represented accurately in a few dimensions.
+
+```{r nmds-plot, fig.width=7, fig.height=6, out.width="65%"}
+par(mar = c(7, 4, 4, 2))
+plot(nmds$points,
+     col = cols5[heart_mds$heart_disease], pch = 19, cex = 0.8,
+     xlab = "Dimension 1", ylab = "Dimension 2",
+     main = "Non-metric MDS - Heart disease severity")
+abline(h = 0, v = 0, lty = 2, col = "grey")
+legend("bottom", inset = c(0, -0.33), xpd = TRUE, horiz = TRUE,
+       legend = levels(heart_mds$heart_disease),
+       col = cols5, pch = 19, bty = "n", cex = 0.9)
+par(mar = c(5, 4, 4, 2) + 0.1)
+
+# Agreement with classical MDS
+cor_nm <- diag(cor(nmds$points, coords))
+cor_nm
+```
+
+The non-metric configuration is very similar to the classical one: the correlations between the corresponding dimensions are `r fmt_cor(cor_nm)` in absolute value. Non-metric MDS therefore does not change the interpretation.
+
+
+# Sammon Mapping
+
+Sammon mapping (`sammon()`) is an alternative non-linear method that gives more weight to small distances, so it focuses on preserving local neighbourhoods.
+
+```{r sammon}
+sam <- sammon(d_nm, k = 2, trace = FALSE)
+sam$stress
+cor_sam <- diag(cor(sam$points, coords))
+cor_sam
+```
+
+The Sammon stress is `r round(sam$stress, 3)`. It is defined differently from Kruskal's stress (it weights each squared error by the inverse of the observed distance), so the two values cannot be compared directly. The Sammon dimensions correlate `r fmt_cor(cor_sam)` in absolute value with the classical MDS dimensions. Since `sammon()` also starts from the classical solution, this mainly shows that the configuration changes very little, and the same structure is recovered.
+
+
+# Conclusions
+
+MDS with the Gower distance makes it possible to use all 13 clinical variables, numerical and categorical, without transforming them. The first dimension describes a clinical heart disease profile (thallium defect, exercise-induced angina, asymptomatic chest pain, flat ST slope, high ST depression and low maximum heart rate) and separates patients with and without heart disease on average, although the groups overlap and the severity levels are hardly distinguished. Its association with the diagnosis is similar to the MCA and stronger than in the PCA, because the categorical clinical variables are included. The second dimension is driven by resting ECG and sex. The goodness of fit is low for both metric MDS (`r round(gof[2, "GOF2"], 1)`% in two dimensions) and non-metric MDS (stress `r round(nmds$stress, 1)`%), which confirms the conclusion of the PCA and MCA that the data have no strong low-dimensional structure. All three methods consistently identify the same main axis, related to heart disease.

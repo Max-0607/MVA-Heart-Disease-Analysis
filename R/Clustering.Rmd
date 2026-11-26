@@ -1,0 +1,257 @@
+---
+title: "Cluster Analysis"
+subtitle: "Heart Disease Dataset"
+output:
+  pdf_document:
+    number_sections: true
+    toc: false
+    latex_engine: xelatex
+geometry: margin=2.3cm
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.width = 8, fig.height = 5)
+library(cluster)
+```
+
+# Data Preparation
+
+We use the preprocessed Heart Disease dataset. Clustering is based on the six numerical measurements; categorical variables are retained for later cluster interpretation.
+
+```{r data-preparation}
+heart <- read.csv("../data/heart_disease_preprocessed.csv",
+                  na.strings = c("", "NA", "?"))
+heart$patient_id <- seq_len(nrow(heart))
+heart <- na.omit(heart)
+
+numeric_vars <- c("age", "rest_bp", "cholesterol",
+                  "max_hr", "st_depression", "vessels")
+
+# Scale numerical measurements to comparable units
+heart_scaled <- scale(heart[, numeric_vars])
+rownames(heart_scaled) <- paste0("Patient_", heart$patient_id)
+
+cat("Patients:", nrow(heart_scaled), "\n")
+cat("Clustering variables:", ncol(heart_scaled), "\n")
+```
+
+# Hierarchical Clustering
+
+As in the lecture, we calculate Euclidean distances on scaled variables and compare linkage methods.
+
+```{r hierarchical-models, include=FALSE}
+d <- dist(heart_scaled, method = "euclidean")
+fit_single <- hclust(d, method = "single")
+fit_complete <- hclust(d, method = "complete")
+fit_average <- hclust(d, method = "average")
+fit_ward <- hclust(d, method = "ward.D2")
+fit_centroid <- hclust(d, method = "centroid")
+```
+
+```{r dendrograms, fig.width=10, fig.height=7}
+# Labels are hidden because there are many patients
+par(mfrow = c(2, 2), mar = c(3, 4, 3, 1))
+plot(fit_single, labels = FALSE, main = "Single Linkage", xlab = "")
+plot(fit_complete, labels = FALSE, main = "Complete Linkage", xlab = "")
+plot(fit_average, labels = FALSE, main = "Average Linkage", xlab = "")
+plot(fit_ward, labels = FALSE, main = "Ward Method", xlab = "")
+par(mfrow = c(1, 1))
+```
+
+Single linkage shows a strong chaining effect, while complete and average linkage produce more distinct groups. Ward's method provides a clearer and more balanced cluster structure and is therefore preferred for further analysis.
+
+
+# Outlier Inspection
+
+```{r outlier-inspection}
+# Maximum absolute standardized value per patient
+max_abs_z <- apply(abs(heart_scaled), 1, max)
+
+# Patients with extreme standardized values
+sort(max_abs_z, decreasing = TRUE)[1:10]
+
+# Ward dendrogram
+plot(
+  fit_ward,
+  main = "Ward Dendrogram - Outlier Inspection",
+  labels = FALSE,
+  xlab = "",
+  sub = ""
+)
+```
+
+```{r outlier-inspection2}
+# Identify variables responsible for extreme values
+outlier_ids <- names(sort(max_abs_z, decreasing = TRUE))[1:10]
+
+# Original values of potential outliers
+heart[
+  match(outlier_ids, rownames(heart_scaled)),
+  c("patient_id", numeric_vars)
+]
+
+# Standardized values
+round(
+  heart_scaled[outlier_ids, , drop = FALSE],
+  2
+)
+```
+
+Several patients show extreme standardized values, particularly Patient 153 (cholesterol, Z = 6.09). However, no clearly isolated individual observations are apparent in the Ward dendrogram. Since these values may represent clinically meaningful variation, all 297 patients are retained for further analysis.
+
+
+
+# Determining the Number of Clusters
+
+## Elbow Method
+
+```{r elbow-method}
+set.seed(42)
+
+aux <- c()
+
+for (i in 2:10) {
+  k <- kmeans(heart_scaled, centers = i, nstart = 25)
+  aux[i - 1] <- k$tot.withinss
+}
+
+plot(
+  2:10, aux,
+  xlab = "Number of Clusters",
+  ylab = "TWSS",
+  type = "b",
+  main = "Elbow Method"
+)
+```
+
+The TWSS decreases as the number of clusters increases, with the largest reductions occurring for smaller values of k. The curve gradually flattens around 4–5 clusters, although no clear elbow is visible. Therefore, additional indices are used to determine a suitable number of clusters.
+
+
+## Pseudo-F Index
+
+```{r pseudo-f}
+set.seed(42)
+
+aux_f <- c()
+
+for (i in 2:10) {
+  k <- kmeans(heart_scaled, centers = i, nstart = 25)
+
+  aux_f[i - 1] <- (
+    k$betweenss * (nrow(heart_scaled) - i)
+  ) / (
+    k$tot.withinss * (i - 1)
+  )
+}
+
+plot(
+  2:10, aux_f,
+  xlab = "Number of Clusters",
+  ylab = "Pseudo-F",
+  type = "b",
+  main = "Pseudo-F Index"
+)
+
+# Number of clusters with the highest Pseudo-F
+which.max(aux_f) + 1
+```
+
+The Pseudo-F index reaches its maximum at k = 2 and decreases steadily for larger numbers of clusters. This suggests that a two-cluster solution provides the strongest separation relative to within-cluster variation among the tested values.
+
+
+## Silhouette Index
+
+```{r silhouette-index}
+library(cluster)
+
+set.seed(42)
+
+aux_sil <- c()
+
+for (i in 2:10) {
+  k <- kmeans(heart_scaled, centers = i, nstart = 25)
+
+  si <- silhouette(k$cluster, d)
+  aux_sil[i - 1] <- mean(si[, "sil_width"])
+}
+
+plot(
+  2:10, aux_sil,
+  xlab = "Number of Clusters",
+  ylab = "Average Silhouette Width",
+  type = "b",
+  main = "Silhouette Index"
+)
+
+# Number of clusters with the highest silhouette
+which.max(aux_sil) + 1
+```
+
+The Silhouette Index reaches its maximum at k = 2 (approximately 0.228), confirming the result of the Pseudo-F Index. Although the Elbow Method does not show a clear optimum, we select two clusters for further analysis. The relatively low silhouette value suggests that the clusters are not strongly separated.
+
+
+
+# K-Means Clustering
+
+```{r kmeans-final}
+set.seed(42)
+
+# Final k-means model
+k2 <- kmeans(
+  heart_scaled,
+  centers = 2,
+  nstart = 25
+)
+
+# Cluster sizes
+k2$size
+
+# Variance explained by clustering
+round(k2$betweenss / k2$totss, 3)
+
+# Silhouette plot
+library(cluster)
+si <- silhouette(k2$cluster, d)
+plot(si, main = "Silhouette Plot - k = 2")
+```
+
+K-means clustering with k = 2 results in two groups containing 131 and 166 patients. The between-cluster sum of squares accounts for 23.5% of the total variation. The average silhouette width of 0.23 indicates weak cluster separation, particularly for Cluster 1.
+
+
+# Cluster Interpretation
+
+```{r cluster-interpretation}
+# Add cluster assignments to the original data
+heart$cluster <- factor(k2$cluster)
+
+# Mean values of numerical variables by cluster
+cluster_means <- aggregate(
+  heart[, numeric_vars],
+  by = list(Cluster = heart$cluster),
+  FUN = mean
+)
+
+round(cluster_means[, -1], 2)
+```
+
+Cluster 1 consists of older patients with higher blood pressure, cholesterol, ST depression, and vessel counts, as well as lower maximum heart rates. Cluster 2 contains younger patients with generally lower values for these variables and higher maximum heart rates. The two clusters therefore represent different cardiovascular profiles.
+
+```{r heart-disease-distribution}
+# Distribution of heart disease diagnoses
+table(heart$cluster, heart$heart_disease)
+
+# Relative frequencies within clusters
+round(
+  prop.table(
+    table(heart$cluster, heart$heart_disease),
+    margin = 1
+  ) * 100,
+  1
+)
+```
+
+Heart disease prevalence differs considerably between the two clusters. In Cluster 1, 74.0% of patients have a diagnosed heart disease, compared to 24.1% in Cluster 2. More severe diagnoses (Levels 2–4) are also substantially more common in Cluster 1. This supports the interpretation of the two clusters as distinct cardiovascular profiles.
+
+
+
